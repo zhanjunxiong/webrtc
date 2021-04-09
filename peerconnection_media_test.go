@@ -338,11 +338,7 @@ func TestPeerConnection_Media_Disconnected(t *testing.T) {
 			// Assert that DTLS is done by pull remote certificate, don't tear down the PC early
 			for {
 				if len(vp8Sender.Transport().GetRemoteCertificate()) != 0 {
-					pcAnswer.sctpTransport.lock.RLock()
-					haveAssociation := pcAnswer.sctpTransport.association != nil
-					pcAnswer.sctpTransport.lock.RUnlock()
-
-					if haveAssociation {
+					if pcAnswer.sctpTransport.association() != nil {
 						break
 					}
 				}
@@ -1078,6 +1074,54 @@ func TestPeerConnection_CreateOffer_InfiniteLoop(t *testing.T) {
 
 	_, err = pc.CreateOffer(nil)
 	assert.Error(t, err, errExcessiveRetries)
+
+	assert.NoError(t, pc.Close())
+}
+
+// Assert that AddTrack is thread-safe
+func TestPeerConnection_RaceReplaceTrack(t *testing.T) {
+	pc, err := NewPeerConnection(Configuration{})
+	assert.NoError(t, err)
+
+	addTrack := func() *TrackLocalStaticSample {
+		track, err := NewTrackLocalStaticSample(RTPCodecCapability{MimeType: "video/vp8"}, "foo", "bar")
+		assert.NoError(t, err)
+		_, err = pc.AddTrack(track)
+		assert.NoError(t, err)
+		return track
+	}
+
+	for i := 0; i < 10; i++ {
+		addTrack()
+	}
+	for _, tr := range pc.GetTransceivers() {
+		assert.NoError(t, pc.RemoveTrack(tr.Sender()))
+	}
+
+	var wg sync.WaitGroup
+	tracks := make([]*TrackLocalStaticSample, 10)
+	wg.Add(10)
+	for i := 0; i < 10; i++ {
+		go func(j int) {
+			tracks[j] = addTrack()
+			wg.Done()
+		}(i)
+	}
+
+	wg.Wait()
+
+	for _, track := range tracks {
+		have := false
+		for _, t := range pc.GetTransceivers() {
+			if t.Sender() != nil && t.Sender().Track() == track {
+				have = true
+				break
+			}
+		}
+		if !have {
+			t.Errorf("track was added but not found on senders")
+		}
+	}
 
 	assert.NoError(t, pc.Close())
 }
