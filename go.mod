@@ -23,5 +23,5 @@ require (
 )
 
 replace （
-	github.com/pion/ice/v2 v2.1.7 => github.com/zhanjunxiong/ice/v2 v2.1.7
+	github.com/pion/ice/v2 v2.1.7 => github.com/zhanjunxiong/ice/v2 master
 ）
